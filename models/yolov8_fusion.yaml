@@ -1,0 +1,57 @@
+# Ultralytics YOLOv8n-Fusion Custom Model (Final Stable)
+# Parameters
+nc: 80 
+scales: 
+  n: [0.33, 0.25, 1024] 
+
+# Backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [64, 3, 2]]  # 0
+  - [-1, 1, Conv, [128, 3, 2]] # 1
+  - [-1, 3, C2f, [128, True]]  # 2 (Output Real: 32 ch)
+  
+  - [-1, 1, Conv, [256, 3, 2]] # 3
+  - [-1, 6, C2f, [256, True]]  # 4
+  
+  - [-1, 1, Conv, [512, 3, 2]] # 5
+  - [-1, 6, C2f, [512, True]]  # 6
+  
+  - [-1, 1, Conv, [1024, 3, 2]] # 7
+  - [-1, 3, C2f, [1024, True]]  # 8
+  - [-1, 1, SPPF, [1024, 5]]    # 9 (Output Real: 256 ch) - SUMBER UTAMA
+
+  # --- CONTEXT BRIDGE ---
+  # Gunakan 128 agar aman (Output Real: 32, atau 16 di beberapa case, tapi kode python kita sudah kebal)
+  - [2, 1, Conv, [128, 3, 2]] # 10
+  - [-1, 1, Conv, [128, 3, 2]] # 11
+  - [-1, 1, Conv, [128, 3, 2]] # 12 - SUMBER KONTEKS
+
+  # --- FUSION BLOCK ---
+  # 1. Gabungkan: SPPF (Main) + Context
+  - [[9, 12], 1, Concat, [1]] # 13
+  
+  # 2. Proses Fusi
+  # Args: [256]. Artinya c2 (output) = 256. c1 (input) masuk otomatis.
+  - [-1, 1, GlobalContextFusion, [256]] # 14 
+
+# Head
+head:
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  - [[-1, 6], 1, Concat, [1]] 
+  - [-1, 3, C2f, [512]]       # 17
+
+  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]
+  - [[-1, 4], 1, Concat, [1]] 
+  - [-1, 3, C2f, [256]]       # 20
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 17], 1, Concat, [1]] 
+  - [-1, 3, C2f, [512]]        # 23
+
+  - [-1, 1, Conv, [512, 3, 2]]
+  # Ambil dari Fusion Layer 14
+  - [[-1, 14], 1, Concat, [1]] 
+  - [-1, 3, C2f, [1024]]       # 26
+
+  - [[20, 23, 26], 1, Detect, [nc]]
